@@ -1,0 +1,35 @@
+# AegisVolt - atajos de desarrollo local (Floci + minikube)
+ENV ?= dev
+TF_DIR := infra/terraform/live
+export AWS_ACCESS_KEY_ID ?= test
+export AWS_SECRET_ACCESS_KEY ?= test
+export AWS_DEFAULT_REGION ?= us-east-1
+
+.PHONY: cloud-up cluster-up bootstrap tf-init tf-plan tf-apply dev test typecheck
+
+cloud-up:            ## Levanta Floci (AWS emulado en :4566)
+	docker compose up -d floci
+
+cluster-up:          ## Levanta minikube (perfil aegisvolt)
+	minikube start -p aegisvolt --driver=docker --cpus=2 --memory=2800 --kubernetes-version=v1.33.1
+
+bootstrap:           ## Crea el bucket S3 versionado para el tfstate (una sola vez)
+	cd infra/terraform/bootstrap && terraform init -input=false && terraform apply -auto-approve
+
+tf-init:
+	cd $(TF_DIR) && terraform init -input=false -backend-config=backend-local.hcl
+
+tf-plan:             ## make tf-plan ENV=test
+	cd $(TF_DIR) && (terraform workspace select $(ENV) || terraform workspace new $(ENV)) && terraform plan -var-file=local.tfvars
+
+tf-apply:            ## make tf-apply ENV=prod
+	cd $(TF_DIR) && (terraform workspace select $(ENV) || terraform workspace new $(ENV)) && terraform apply -auto-approve -var-file=local.tfvars
+
+dev:                 ## Corre los 4 servicios en local contra las tablas de $(ENV)
+	./scripts/run-local.sh $(ENV)
+
+test:
+	npm test
+
+typecheck:
+	npm run typecheck

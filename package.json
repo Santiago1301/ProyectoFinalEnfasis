@@ -1,0 +1,26 @@
+{
+  "name": "aegisvolt",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AegisVolt - plataforma cloud-native de gestión de carga para flotas eléctricas",
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "vitest run --project e2e",
+    "lint:graphql": "node scripts/validate-graphql-schema.mjs"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}

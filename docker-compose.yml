@@ -1,0 +1,20 @@
+# Nube AWS emulada localmente con Floci (compatible con la API de AWS en :4566).
+# Uso: docker compose up -d floci
+services:
+  floci:
+    image: floci/floci:2.5.0
+    container_name: aegisvolt-floci
+    ports:
+      - "4566:4566"
+    environment:
+      FLOCI_DEFAULT_REGION: us-east-1
+    volumes:
+      - floci-data:/var/lib/floci
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4566/_floci/health >/dev/null 2>&1 || curl -sf http://localhost:4566/_floci/health"]
+      interval: 5s
+      retries: 20
+
+volumes:
+  floci-data:

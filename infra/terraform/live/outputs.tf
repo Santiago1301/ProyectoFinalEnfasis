@@ -1,0 +1,9 @@
+output "environment" { value = local.env }
+output "vpc_id" { value = module.network.vpc_id }
+output "vpc_endpoints" { value = module.network.vpc_endpoint_ids }
+output "dynamodb_tables" { value = module.dynamodb.table_names }
+output "log_groups" { value = module.observability.log_groups }
+output "api_gateway_invoke_url" { value = module.api_gateway.invoke_url }
+output "api_gateway_rest_api_id" { value = module.api_gateway.rest_api_id }
+output "k8s_namespace" { value = try(module.kubernetes_env[0].namespace, null) }
+output "eks_cluster_name" { value = try(module.eks[0].cluster_name, null) }

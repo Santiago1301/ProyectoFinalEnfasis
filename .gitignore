@@ -1,0 +1,19 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+.terraform.lock.hcl.bak
+# Python / Prefect
+__pycache__/
+.venv/
+*.pyc
+# OS
+.DS_Store

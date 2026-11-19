@@ -1,0 +1,210 @@
+"""
+Esquema unificado de AegisVolt. Agrega los microservicios
+station-reservation, billing-wallet y energy-dispatch.
+"""
+enum Environment {
+  dev
+  test
+  prod
+}
+
+enum ConnectorStatus {
+  AVAILABLE
+  RESERVED
+  CHARGING
+  FAULTED
+}
+
+enum SagaStatus {
+  "Registrada, aún sin pasos ejecutados"
+  STARTED
+  "Paso 1 OK: conector reservado"
+  RESERVED
+  "Paso 2 OK: saldo descontado"
+  PAID
+  "Paso 3 OK: cargador entregando energía"
+  COMPLETED
+  "Ejecutando transacciones compensatorias"
+  COMPENSATING
+  "Rollback distribuido terminado"
+  COMPENSATED
+  "Falló el primer paso, no hubo nada que compensar"
+  FAILED
+  "Una compensación no pudo completarse tras reintentos (requiere intervención)"
+  COMPENSATION_FAILED
+  "Rechazada antes de iniciar (validación o feature flag)"
+  REJECTED
+}
+
+type Connector {
+  connectorId: ID!
+  stationId: ID!
+  status: ConnectorStatus!
+  powerKw: Float!
+  plugType: String!
+  ultraFast: Boolean!
+  reservationSagaId: ID
+  updatedAt: String
+}
+
+type Station {
+  stationId: ID!
+  name: String!
+  city: String!
+  address: String
+  latitude: Float
+  longitude: Float
+  connectors: [Connector!]!
+  availableConnectors: Int!
+}
+
+type WalletTransaction {
+  txId: ID!
+  sagaId: ID!
+  type: String!
+  amount: Float!
+  status: String!
+  reason: String
+  createdAt: String!
+}
+
+type Wallet {
+  fleetId: ID!
+  fleetName: String!
+  balance: Float!
+  currency: String!
+  transactions(limit: Int = 20): [WalletTransaction!]!
+}
+
+type FeatureFlag {
+  name: String!
+  enabled: Boolean!
+  description: String
+  environment: Environment!
+  updatedAt: String
+  updatedBy: String
+}
+
+type SagaStep {
+  name: String!
+  status: String!
+  at: String!
+  detail: String
+}
+
+type Saga {
+  sagaId: ID!
+  correlationId: ID!
+  status: SagaStatus!
+  environment: Environment!
+  fleetId: ID!
+  stationId: ID!
+  connectorId: ID!
+  energyKwh: Float!
+  fastChargeBoost: Boolean!
+  amount: Float
+  currency: String
+  surgeMultiplier: Float
+  failedStep: String
+  failureReason: String
+  steps: [SagaStep!]!
+  createdAt: String!
+  updatedAt: String!
+  session: ChargingSession
+}
+
+type Quote {
+  ratePerKwh: Float!
+  surgeMultiplier: Float!
+  surgeActive: Boolean!
+  peakHour: Boolean!
+  boostFee: Float!
+  amount: Float!
+  currency: String!
+}
+
+type TelemetryPoint {
+  timestamp: String!
+  powerKw: Float!
+  voltage: Float!
+  currentA: Float!
+  deliveredKwh: Float!
+  stateOfCharge: Float!
+}
+
+type ChargingSession {
+  sagaId: ID!
+  stationId: ID!
+  connectorId: ID!
+  status: String!
+  powerKw: Float!
+  energyKwhTarget: Float!
+  deliveredKwh: Float!
+  faultCode: String
+  startedAt: String!
+  updatedAt: String!
+  telemetry(limit: Int = 30): [TelemetryPoint!]!
+}
+
+type ServiceHealth {
+  name: String!
+  status: String!
+  version: String
+  track: String
+  latencyMs: Int
+}
+
+type EnvironmentInfo {
+  environment: Environment!
+  version: String!
+  flagMutationsAllowed: Boolean!
+  services: [ServiceHealth!]!
+}
+
+input QuoteInput {
+  stationId: ID!
+  connectorId: ID!
+  energyKwh: Float!
+  fastChargeBoost: Boolean = false
+}
+
+input ReserveAndChargeInput {
+  fleetId: ID!
+  stationId: ID!
+  connectorId: ID!
+  energyKwh: Float!
+  fastChargeBoost: Boolean = false
+  "Si se repite la misma llave, se devuelve la SAGA original en lugar de crear otra"
+  idempotencyKey: String
+}
+
+type Query {
+  environment: EnvironmentInfo!
+  stations: [Station!]!
+  station(stationId: ID!): Station
+  wallets: [Wallet!]!
+  wallet(fleetId: ID!): Wallet
+  featureFlags: [FeatureFlag!]!
+  quote(input: QuoteInput!): Quote!
+  sagas(limit: Int = 25): [Saga!]!
+  saga(sagaId: ID!): Saga
+  chargingSessions: [ChargingSession!]!
+  chargingSession(sagaId: ID!): ChargingSession
+}
+
+type Mutation {
+  "Dispara la SAGA Reservar -> Cobrar -> Activar carga"
+  reserveAndCharge(input: ReserveAndChargeInput!): Saga!
+  "Finaliza una carga activa y libera el conector"
+  stopCharging(sagaId: ID!): Saga!
+  "Reintenta las compensaciones de una SAGA en COMPENSATION_FAILED"
+  retrySagaCompensation(sagaId: ID!): Saga!
+  "Cambia una feature flag del ambiente actual sin redesplegar"
+  setFeatureFlag(name: String!, enabled: Boolean!): FeatureFlag!
+}
+
+type Subscription {
+  stationsUpdated: [Station!]!
+  sagaUpdated(sagaId: ID!): Saga!
+  featureFlagsUpdated: [FeatureFlag!]!
+}
