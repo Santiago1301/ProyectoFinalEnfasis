@@ -4,6 +4,7 @@ infra
 docs
 k8s
 prefect
-frontend
+frontend/node_modules
+frontend/dist
 .git
 *.md

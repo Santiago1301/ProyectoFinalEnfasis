@@ -22,13 +22,16 @@ port_of() {
     station-reservation-service) echo 4001 ;;
     billing-wallet-service) echo 4002 ;;
     energy-dispatch-service) echo 4003 ;;
+    frontend) echo 8080 ;;
     *) echo "servicio desconocido: $1" >&2; return 1 ;;
   esac
 }
 
 # NodePort del gateway por ambiente (en local los 3 ambientes comparten clúster).
-node_port_of() {
-  case "$1" in dev) echo 30080 ;; test) echo 30081 ;; prod) echo 30082 ;; esac
+node_port_of() { # <env> [servicio]
+  local base=30080
+  [[ "${2:-}" == frontend ]] && base=30090
+  case "$1" in dev) echo $base ;; test) echo $((base + 1)) ;; prod) echo $((base + 2)) ;; esac
 }
 
 # Ruta de lectura usada para generar tráfico de verificación.
@@ -49,9 +52,9 @@ render_deployment() { # service track image version replicas namespace chaos
 
 render_service() { # service namespace env
   local type=ClusterIP line=""
-  if [[ "$1" == graphql-gateway ]]; then
+  if [[ "$1" == graphql-gateway || "$1" == frontend ]]; then
     type=NodePort
-    line="      nodePort: $(node_port_of "$3")"
+    line="      nodePort: $(node_port_of "$3" "$1")"
   fi
   sed -e "s|__SERVICE__|$1|g" -e "s|__NAMESPACE__|$2|g" -e "s|__SERVICE_TYPE__|$type|g" \
       -e "s|__NODE_PORT_LINE__|$line|" "$ROOT/k8s/service.tpl.yaml"

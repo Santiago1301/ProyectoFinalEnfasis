@@ -92,11 +92,39 @@ scripts/k8s/canary.sh dev graphql-gateway v1.2.0 0.5                     # canar
 Si alguna falla, borra el Deployment canary (rollback automático): el stable nunca se modificó.
 Si pasa, actualiza stable con rolling update `maxUnavailable: 0` (sin caída) y elimina el canary.
 
+## Frontend (React + Vite)
+
+Consola en `frontend/` con los 4 paneles de la rúbrica: electrolineras en tiempo real
+(suscripción GraphQL por **WSS**, con respaldo por polling), flujo de reserva que dispara la
+SAGA y muestra su línea de tiempo y telemetría, feature flags del ambiente y historial de
+SAGAs con sus compensaciones. El color de la franja y el badge salen del ambiente que reporta
+el gateway (verde dev, ámbar test, rojo prod).
+
+En Kubernetes corre como nginx sin privilegios: sirve los estáticos y reenvía `/graphql`
+(HTTP y WebSocket) al `graphql-gateway` de su mismo namespace, así cada ambiente habla sólo
+con su API. En prod la UI muestra las flags en sólo lectura (`ALLOW_FLAG_MUTATIONS=false`).
+
+```bash
+kubectl --context aegisvolt -n aegisvolt-dev  port-forward svc/frontend 3000:80   # http://localhost:3000
+kubectl --context aegisvolt -n aegisvolt-prod port-forward svc/frontend 3002:80   # http://localhost:3002
+# desarrollo con recarga en caliente contra el gateway de dev:
+kubectl --context aegisvolt -n aegisvolt-dev port-forward svc/graphql-gateway 8080:80
+GATEWAY_URL=http://localhost:8080 npm run dev -w frontend
+```
+
+Demostración "cambiar una flag en dev sin redesplegar":
+
+```bash
+AWS_ENDPOINT_URL=http://localhost:4566 aws dynamodb update-item --table-name aegisvolt-feature-flags-dev \
+  --key '{"name":{"S":"ENABLE_FAST_CHARGE_BOOST"}}' --update-expression 'SET enabled = :f' \
+  --expression-attribute-values '{":f":{"BOOL":false}}'
+```
+
 ## Estado del proyecto
 
 - [x] Microservicios, gateway GraphQL, SAGA con compensaciones e idempotencia, feature flags por ambiente
 - [x] Terraform: bootstrap S3 versionado, workspaces dev/test/prod, VPC/VPCE, DynamoDB, CloudWatch, API Gateway, EKS (AWS real), namespace k8s
 - [x] Dockerfile + manifiestos Kubernetes + canary con análisis y rollback automático
-- [ ] Frontend React
+- [x] Frontend React (tiempo real por WSS, SAGA, flags por ambiente, historial de compensaciones)
 - [ ] GitHub Actions + protección de ramas
 - [ ] Flujos de Prefect

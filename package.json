@@ -2,10 +2,11 @@
   "name": "aegisvolt",
   "private": true,
   "version": "0.1.0",
-  "description": "AegisVolt - plataforma cloud-native de gestión de carga para flotas eléctricas",
+  "description": "AegisVolt - plataforma cloud-native de gesti\u00f3n de carga para flotas el\u00e9ctricas",
   "workspaces": [
     "packages/*",
-    "services/*"
+    "services/*",
+    "frontend"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

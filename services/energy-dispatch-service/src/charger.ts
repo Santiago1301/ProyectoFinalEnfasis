@@ -4,7 +4,7 @@ import type { ChargingSession, TelemetryPoint } from './repository.ts';
  * Simulador del hardware del cargador. En producción esta clase hablaría
  * OCPP con el cargador físico; aquí genera telemetría plausible.
  */
-export const SIMULATION_SPEEDUP = Number(process.env.CHARGER_SIMULATION_SPEEDUP ?? 60);
+export const SIMULATION_SPEEDUP = Number(process.env.CHARGER_SIMULATION_SPEEDUP ?? 10);
 
 export function nextTelemetry(session: ChargingSession, elapsedMs: number, now = new Date()): TelemetryPoint {
   const hours = (elapsedMs / 3_600_000) * SIMULATION_SPEEDUP;

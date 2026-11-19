@@ -1,0 +1,5 @@
+{
+  "endpoints": [
+    { "label": "Este despliegue", "url": "/graphql" }
+  ]
+}

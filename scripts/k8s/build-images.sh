@@ -14,4 +14,7 @@ if [[ "${2:-}" == --minikube ]]; then
     minikube -p aegisvolt image load "$IMAGE_REPO/$svc:$TAG"
   done
 fi
+log "docker build $IMAGE_REPO/frontend:$TAG"
+docker build -q --pull=false --build-arg NODE_IMAGE="${NODE_IMAGE:-node:22-alpine}" -f "$ROOT/frontend/Dockerfile" -t "$IMAGE_REPO/frontend:$TAG" "$ROOT" >/dev/null
+[[ "${2:-}" == --minikube ]] && minikube -p aegisvolt image load "$IMAGE_REPO/frontend:$TAG"
 log "Imágenes $TAG listas"

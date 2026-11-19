@@ -45,14 +45,16 @@ resource "kubernetes_config_map_v1" "config" {
       AWS_REGION              = var.aws_region
       CLOUDWATCH_LOGS_ENABLED = "true"
       ALLOW_FLAG_MUTATIONS    = tostring(var.allow_flag_mutations)
-      RESERVATION_SERVICE_URL = "http://station-reservation-service"
-      BILLING_SERVICE_URL     = "http://billing-wallet-service"
-      DISPATCH_SERVICE_URL    = "http://energy-dispatch-service"
-      TABLE_RESERVATIONS      = var.table_names["reservations"]
-      TABLE_BILLING           = var.table_names["billing"]
-      TABLE_DISPATCH          = var.table_names["dispatch"]
-      TABLE_SAGAS             = var.table_names["sagas"]
-      TABLE_FEATURE_FLAGS     = var.table_names["feature-flags"]
+      # Simulador del cargador: 1 s real = 10 s de carga (curva visible en la UI)
+      CHARGER_SIMULATION_SPEEDUP = "10"
+      RESERVATION_SERVICE_URL    = "http://station-reservation-service"
+      BILLING_SERVICE_URL        = "http://billing-wallet-service"
+      DISPATCH_SERVICE_URL       = "http://energy-dispatch-service"
+      TABLE_RESERVATIONS         = var.table_names["reservations"]
+      TABLE_BILLING              = var.table_names["billing"]
+      TABLE_DISPATCH             = var.table_names["dispatch"]
+      TABLE_SAGAS                = var.table_names["sagas"]
+      TABLE_FEATURE_FLAGS        = var.table_names["feature-flags"]
     },
     var.aws_endpoint_url == "" ? {} : { AWS_ENDPOINT_URL = var.aws_endpoint_url },
   )
