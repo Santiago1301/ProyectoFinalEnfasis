@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+infra
+docs
+k8s
+prefect
+frontend
+.git
+*.md

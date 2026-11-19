@@ -1,0 +1,19 @@
+# Service estable: selecciona sólo app=<servicio> (sin track), así incluye
+# los pods stable y canary.
+apiVersion: v1
+kind: Service
+metadata:
+  name: __SERVICE__
+  namespace: __NAMESPACE__
+  labels:
+    app: __SERVICE__
+    app.kubernetes.io/part-of: aegisvolt
+spec:
+  type: __SERVICE_TYPE__
+  selector:
+    app: __SERVICE__
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+__NODE_PORT_LINE__

@@ -1,0 +1,22 @@
+# Zero-trust dentro del namespace: los microservicios de dominio sólo aceptan
+# tráfico del graphql-gateway (y del generador de carga del canary). El
+# gateway acepta tráfico externo (NLB / VPC Link vía NodePort).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: domain-services-only-from-gateway
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [station-reservation-service, billing-wallet-service, energy-dispatch-service]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: graphql-gateway
+        - podSelector:
+            matchLabels:
+              app: canary-loadgen

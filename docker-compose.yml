@@ -11,10 +11,8 @@ services:
     volumes:
       - floci-data:/var/lib/floci
       - /var/run/docker.sock:/var/run/docker.sock
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:4566/_floci/health >/dev/null 2>&1 || curl -sf http://localhost:4566/_floci/health"]
-      interval: 5s
-      retries: 20
+    # La imagen nativa de Floci no incluye curl/wget; verificar con:
+    #   curl localhost:4566/_floci/health
 
 volumes:
   floci-data:

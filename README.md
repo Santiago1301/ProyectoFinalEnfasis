@@ -65,11 +65,38 @@ AWS_ENDPOINT_URL=http://localhost:4566 aws s3api list-object-versions \
 
 Para restaurar: `aws s3api copy-object --copy-source "aegisvolt-tfstate/env:/dev/aegisvolt/terraform.tfstate?versionId=<id>" --bucket aegisvolt-tfstate --key env:/dev/aegisvolt/terraform.tfstate`.
 
+## Kubernetes y Canary Deployment
+
+Cada ambiente es un namespace (`aegisvolt-dev|test|prod`) creado por Terraform con su
+`ConfigMap` (tablas, endpoint, flags de gobernanza). Cada servicio tiene dos Deployments
+que comparten la etiqueta `app`: `<svc>-stable` (4 réplicas) y, durante un despliegue,
+`<svc>-canary` (1 réplica). El `Service` selecciona sólo `app`, así que **1 de 5 pods = 20%
+del tráfico** va a la versión nueva.
+
+```bash
+NODE_IMAGE=node:20-slim scripts/k8s/build-images.sh v1.0.0 --minikube   # construye y carga en minikube
+scripts/k8s/deploy.sh dev v1.0.0                                         # primer despliegue: directo a stable
+scripts/k8s/build-images.sh v1.1.0 --minikube && scripts/k8s/deploy.sh dev v1.1.0   # canary por servicio
+scripts/k8s/canary.sh dev graphql-gateway v1.2.0 0.5                     # canary con 50% de errores → rollback
+```
+
+`scripts/k8s/canary.sh` promueve al 100% sólo si se cumplen **todas** las condiciones:
+
+| Condición | Fuente | Umbral |
+|---|---|---|
+| Pods canary Ready y sin reinicios | Kubernetes | 0 reinicios |
+| Tráfico atendido por el canary | `/metrics` del pod canary | ≥ 10 requests |
+| Tasa de errores 5xx del canary | `/metrics` del pod canary | ≤ 5% |
+| Logs `level=error` con `track=canary` y `version=<tag>` | CloudWatch `/aegisvolt/<env>/<svc>` | < 5 |
+
+Si alguna falla, borra el Deployment canary (rollback automático): el stable nunca se modificó.
+Si pasa, actualiza stable con rolling update `maxUnavailable: 0` (sin caída) y elimina el canary.
+
 ## Estado del proyecto
 
 - [x] Microservicios, gateway GraphQL, SAGA con compensaciones e idempotencia, feature flags por ambiente
 - [x] Terraform: bootstrap S3 versionado, workspaces dev/test/prod, VPC/VPCE, DynamoDB, CloudWatch, API Gateway, EKS (AWS real), namespace k8s
-- [ ] Dockerfiles + manifiestos Kubernetes + canary
+- [x] Dockerfile + manifiestos Kubernetes + canary con análisis y rollback automático
 - [ ] Frontend React
 - [ ] GitHub Actions + protección de ramas
 - [ ] Flujos de Prefect

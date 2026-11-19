@@ -44,6 +44,38 @@ export function createServiceApp(logger: Logger, register: (app: express.Express
     next();
   });
 
+  // Métricas de este pod: el análisis canary compara la tasa de 5xx del pod
+  // canary contra el umbral antes de promover al 100%.
+  const metrics = { requests_total: 0, errors_5xx_total: 0, started_at: new Date().toISOString() };
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith('/health') || req.path === '/metrics') return next();
+    res.on('finish', () => {
+      metrics.requests_total++;
+      if (res.statusCode >= 500) metrics.errors_5xx_total++;
+    });
+    next();
+  });
+  app.get('/metrics', (_req, res) => {
+    res.json({
+      ...metrics,
+      service: logger.service,
+      version: process.env.APP_VERSION ?? 'local',
+      track: process.env.DEPLOY_TRACK ?? 'stable',
+      error_rate: metrics.requests_total ? metrics.errors_5xx_total / metrics.requests_total : 0,
+    });
+  });
+
+  // Inyección de caos (sólo para demostrar el rollback automático del canary):
+  // CHAOS_ERROR_RATE=0.5 hace que el 50% de las peticiones respondan 500.
+  const chaosRate = Number(process.env.CHAOS_ERROR_RATE ?? 0);
+  if (chaosRate > 0) {
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.path.startsWith('/health') || req.path === '/metrics' || Math.random() >= chaosRate) return next();
+      req.log.error('chaos_injected_error', { chaos_error_rate: chaosRate });
+      res.status(500).json({ error: 'CHAOS_INJECTED', message: 'Error inyectado por CHAOS_ERROR_RATE' });
+    });
+  }
+
   app.get('/health/live', (_req, res) => {
     res.json({ status: 'ok' });
   });

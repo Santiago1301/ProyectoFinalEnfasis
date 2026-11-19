@@ -1,0 +1,76 @@
+# Plantilla de Deployment por servicio y "track" (stable | canary).
+# La renderiza scripts/k8s/render.sh. Ambas variantes comparten la etiqueta
+# app=<servicio>, por eso el Service reparte el tráfico en proporción a las
+# réplicas: 4 stable + 1 canary = 20% del tráfico a la nueva versión.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: __SERVICE__-__TRACK__
+  namespace: __NAMESPACE__
+  labels:
+    app: __SERVICE__
+    track: __TRACK__
+    version: "__VERSION__"
+    app.kubernetes.io/part-of: aegisvolt
+spec:
+  replicas: __REPLICAS__
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: __SERVICE__
+      track: __TRACK__
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0 # nunca baja capacidad: despliegue sin tiempo de caída
+  template:
+    metadata:
+      labels:
+        app: __SERVICE__
+        track: __TRACK__
+        version: "__VERSION__"
+        app.kubernetes.io/part-of: aegisvolt
+    spec:
+      serviceAccountName: aegisvolt
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: __SERVICE__
+          image: __IMAGE__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: __PORT__
+          envFrom:
+            - configMapRef:
+                name: aegisvolt-config
+            - secretRef:
+                name: aegisvolt-aws
+                optional: true
+          env:
+            - name: PORT
+              value: "__PORT__"
+            - name: DEPLOY_TRACK
+              value: __TRACK__
+            - name: APP_VERSION
+              value: "__VERSION__"
+            - name: CHAOS_ERROR_RATE
+              value: "__CHAOS__"
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { memory: 192Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.js --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
   },
   "dependencies": {
     "@aegisvolt/shared": "*",
