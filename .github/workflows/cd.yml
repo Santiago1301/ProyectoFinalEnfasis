@@ -1,0 +1,123 @@
+# Pipeline post-merge. Un push a dev/test/prod sólo puede venir de un PR
+# fusionado (las reglas bloquean el push directo y el force push).
+#
+#  1. Detecta el ambiente a partir de la rama destino (github.ref_name).
+#  2. terraform workspace select <ambiente> && terraform apply -auto-approve
+#     -> sólo toca env:/<ambiente>/... en S3 y recursos *-<ambiente>.
+#  3. Construye las imágenes con tag = SHA del commit.
+#  4. Canary por microservicio (20%) con análisis y rollback automático.
+name: CD
+
+on:
+  push:
+    branches: [dev, test, prod]
+  workflow_dispatch:
+
+# Nunca dos despliegues simultáneos sobre el mismo ambiente; no se cancelan.
+concurrency:
+  group: cd-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # OIDC hacia AWS (modo aws)
+
+jobs:
+  deploy:
+    name: deploy-${{ github.ref_name }}
+    runs-on: ${{ vars.DEPLOY_TARGET == 'aws' && 'ubuntu-latest' || fromJSON('["self-hosted","aegisvolt"]') }}
+    # GitHub Environment: en prod se puede exigir aprobación manual.
+    environment: ${{ github.ref_name }}
+    env:
+      DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET || 'local' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detectar ambiente destino
+        id: target
+        run: |
+          case "$GITHUB_REF_NAME" in
+            dev|test|prod) ENV="$GITHUB_REF_NAME" ;;
+            *) echo "::error::La rama $GITHUB_REF_NAME no corresponde a un ambiente"; exit 1 ;;
+          esac
+          TAG="sha-${GITHUB_SHA::7}"
+          echo "env=$ENV" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "### Despliegue \`$TAG\` -> **$ENV** ($DEPLOY_TARGET)" >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------------- Credenciales (sólo AWS real) ----------------
+      - if: env.DEPLOY_TARGET == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - if: env.DEPLOY_TARGET == 'aws'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - if: env.DEPLOY_TARGET == 'aws'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.x
+          terraform_wrapper: false
+
+      - name: Configurar modo (local Floci+minikube | AWS)
+        run: |
+          if [[ "$DEPLOY_TARGET" == aws ]]; then
+            {
+              echo "BACKEND_CONFIG=backend-aws.hcl"; echo "TF_VARS=aws.tfvars"; echo "LOCAL_EMULATOR=false"
+              echo "IMAGE_REPO=${{ steps.ecr.outputs.registry }}/aegisvolt"; echo "KUBE_CONTEXT=aegisvolt-${{ steps.target.outputs.env }}"
+            } >> "$GITHUB_ENV"
+          else
+            {
+              echo "BACKEND_CONFIG=backend-local.hcl"; echo "TF_VARS=local.tfvars"; echo "LOCAL_EMULATOR=true"
+              echo "IMAGE_REPO=aegisvolt"; echo "KUBE_CONTEXT=aegisvolt"
+              echo "AWS_ACCESS_KEY_ID=test"; echo "AWS_SECRET_ACCESS_KEY=test"
+            } >> "$GITHUB_ENV"
+          fi
+
+      # ---------------- Infraestructura ----------------
+      - name: terraform apply en el workspace ${{ steps.target.outputs.env }}
+        working-directory: infra/terraform/live
+        env:
+          ENV: ${{ steps.target.outputs.env }}
+        run: |
+          terraform init -input=false -backend-config="$BACKEND_CONFIG"
+          terraform workspace select "$ENV"
+          test "$(terraform workspace show)" = "$ENV"
+          terraform apply -auto-approve -input=false -var-file="$TF_VARS" -lock-timeout=120s
+          if [[ "$DEPLOY_TARGET" == aws ]]; then
+            aws eks update-kubeconfig --name "$(terraform output -raw eks_cluster_name)" --alias "$KUBE_CONTEXT"
+          fi
+
+      # ---------------- Imágenes ----------------
+      - name: Build de imágenes ${{ steps.target.outputs.tag }}
+        env:
+          NODE_IMAGE: ${{ vars.NODE_IMAGE || 'node:22-alpine' }}
+        run: |
+          if [[ "$DEPLOY_TARGET" == aws ]]; then
+            scripts/k8s/build-images.sh "${{ steps.target.outputs.tag }}"
+            for img in station-reservation-service billing-wallet-service energy-dispatch-service graphql-gateway frontend; do
+              docker push "$IMAGE_REPO/$img:${{ steps.target.outputs.tag }}"
+            done
+          else
+            scripts/k8s/build-images.sh "${{ steps.target.outputs.tag }}" --minikube
+          fi
+
+      # ---------------- Canary ----------------
+      - name: Canary deployment (20%) con análisis y rollback automático
+        env:
+          STABLE_REPLICAS: ${{ vars.STABLE_REPLICAS || '4' }}
+          CANARY_REPLICAS: '1'
+          MAX_ERROR_RATE: '0.05'
+        run: scripts/k8s/deploy.sh "${{ steps.target.outputs.env }}" "${{ steps.target.outputs.tag }}"
+
+      - name: Smoke test del ambiente desplegado
+        env:
+          ENV: ${{ steps.target.outputs.env }}
+        run: |
+          kubectl --context "$KUBE_CONTEXT" -n "aegisvolt-$ENV" port-forward svc/graphql-gateway 18080:80 >/dev/null 2>&1 &
+          PF=$!; trap 'kill $PF' EXIT; sleep 3
+          GOT=$(curl -s localhost:18080/graphql -H 'content-type: application/json' \
+            -d '{"query":"{ environment { environment version } }"}' | jq -r '.data.environment | "\(.environment) \(.version)"')
+          echo "Respuesta: $GOT"
+          [[ "$GOT" == "$ENV ${{ steps.target.outputs.tag }}" ]] || { echo "::error::Se esperaba '$ENV ${{ steps.target.outputs.tag }}'"; exit 1; }

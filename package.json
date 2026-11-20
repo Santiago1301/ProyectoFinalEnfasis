@@ -14,7 +14,7 @@
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:e2e": "vitest run --project e2e",
-    "lint:graphql": "node scripts/validate-graphql-schema.mjs"
+    "lint:graphql": "tsx scripts/validate-graphql.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

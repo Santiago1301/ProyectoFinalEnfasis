@@ -1,0 +1,43 @@
+name: Stack efímero AegisVolt
+description: >
+  Aprovisiona con el MISMO Terraform del proyecto un ambiente desechable sobre
+  Floci (bucket de estado, workspace, tablas DynamoDB, log groups) y arranca
+  los 4 servicios contra él. Lo usan integration-tests y e2e-tests.
+inputs:
+  environment:
+    description: Workspace de Terraform / ambiente (dev|test|prod) a imitar
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+    - run: npm ci --no-audit --no-fund
+      shell: bash
+    - uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.17.x
+        terraform_wrapper: false
+    - name: Esperar Floci
+      shell: bash
+      run: |
+        for _ in $(seq 1 60); do curl -sf localhost:4566/_floci/health >/dev/null && exit 0; sleep 1; done
+        echo "Floci no respondió" >&2; exit 1
+    - name: terraform apply (bootstrap + workspace ${{ inputs.environment }})
+      shell: bash
+      working-directory: infra/terraform
+      run: |
+        terraform -chdir=bootstrap init -input=false
+        terraform -chdir=bootstrap apply -auto-approve -input=false
+        terraform -chdir=live init -input=false -backend-config=backend-local.hcl
+        terraform -chdir=live workspace select -or-create ${{ inputs.environment }}
+        # Sin clúster en el runner de CI: sólo recursos AWS (emulados).
+        terraform -chdir=live apply -auto-approve -input=false -var-file=local.tfvars -var manage_kubernetes=false
+    - name: Arrancar microservicios
+      shell: bash
+      run: |
+        nohup scripts/run-local.sh ${{ inputs.environment }} > services.log 2>&1 &
+        for _ in $(seq 1 60); do curl -sf localhost:4000/health/ready >/dev/null && exit 0; sleep 1; done
+        cat services.log; exit 1

@@ -1,0 +1,157 @@
+# Pipeline pre-merge. Cada job es un "required status check" de las reglas de
+# las ramas dev/test/prod (ver scripts/github/setup-repo.sh): el botón de Merge
+# sólo se habilita con TODOS en verde.
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, test, prod]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # El ambiente destino sale de la rama base del PR (dev|test|prod).
+  TARGET_ENV: ${{ github.base_ref }}
+
+jobs:
+  promotion-guard:
+    name: promotion-guard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validar cadena de promoción feature/* -> dev -> test -> prod
+        env:
+          HEAD: ${{ github.head_ref }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          case "$BASE" in
+            dev)  [[ "$HEAD" =~ ^(feature|fix|chore|docs)/ ]] || { echo "::error::A dev sólo entran ramas feature/*, fix/*, chore/* o docs/* (recibido: $HEAD)"; exit 1; } ;;
+            test) [[ "$HEAD" == dev ]]  || { echo "::error::A test sólo se promueve desde dev (recibido: $HEAD)"; exit 1; } ;;
+            prod) [[ "$HEAD" == test ]] || { echo "::error::A prod sólo se promueve desde test (recibido: $HEAD)"; exit 1; } ;;
+          esac
+          echo "Promoción válida: $HEAD -> $BASE" >> "$GITHUB_STEP_SUMMARY"
+
+  lint-build:
+    name: lint-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck (servicios + frontend)
+        run: npm run typecheck && npx tsc -p frontend/tsconfig.json
+      - name: Validar esquema GraphQL y operaciones del frontend
+        run: npm run lint:graphql
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.17.x
+      - name: terraform fmt / validate
+        run: |
+          terraform -chdir=infra/terraform fmt -check -recursive
+          terraform -chdir=infra/terraform/live init -backend=false -input=false
+          terraform -chdir=infra/terraform/live validate
+      - uses: docker/setup-buildx-action@v3
+      - name: Build de imágenes Docker
+        run: |
+          for svc in station-reservation-service billing-wallet-service energy-dispatch-service graphql-gateway; do
+            docker buildx build --build-arg SERVICE=$svc -t aegisvolt/$svc:ci .
+          done
+          docker buildx build -f frontend/Dockerfile -t aegisvolt/frontend:ci .
+
+  unit-tests:
+    name: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Pruebas unitarias (SAGA, compensaciones, tarifas)
+        run: npm test
+        env:
+          NODE_ENV: test
+
+  integration-tests:
+    name: integration-tests
+    runs-on: ubuntu-latest
+    services:
+      floci:
+        image: floci/floci:2.5.0
+        ports: ["4566:4566"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/ephemeral-stack
+        with:
+          environment: ${{ env.TARGET_ENV }}
+      - name: Pruebas de integración (DynamoDB + endpoint GraphQL)
+        run: npm run test:integration
+        env:
+          NODE_ENV: test
+          AEGIS_ENV: ${{ env.TARGET_ENV }}
+      - if: failure()
+        run: cat services.log
+
+  e2e-tests:
+    name: e2e-tests
+    runs-on: ubuntu-latest
+    services:
+      floci:
+        image: floci/floci:2.5.0
+        ports: ["4566:4566"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/ephemeral-stack
+        with:
+          environment: ${{ env.TARGET_ENV }}
+      - name: Build y arranque del frontend
+        run: |
+          npm run build -w frontend
+          nohup npx -w frontend vite preview --port 4173 --strictPort > frontend.log 2>&1 &
+          for _ in $(seq 1 30); do curl -sf localhost:4173/ >/dev/null && break; sleep 1; done
+      - name: E2E del flujo SAGA desde el frontend (proxy /graphql de la UI)
+        run: npm run test:e2e
+        env:
+          NODE_ENV: test
+          AEGIS_ENV: ${{ env.TARGET_ENV }}
+          GRAPHQL_URL: http://localhost:4173/graphql
+      - if: failure()
+        run: cat services.log frontend.log
+
+  # Corre en el runner self-hosted porque ahí vive el estado REAL (S3 de Floci).
+  # Sólo para PRs del mismo repositorio: nunca ejecuta código de forks.
+  terraform-plan:
+    name: terraform-plan
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, aegisvolt]
+    env:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: terraform plan sobre el workspace de la rama destino
+        working-directory: infra/terraform/live
+        run: |
+          terraform init -input=false -backend-config=backend-local.hcl
+          terraform workspace select "$TARGET_ENV"
+          echo "Workspace activo: $(terraform workspace show)"
+          terraform plan -input=false -var-file=local.tfvars -out=tfplan -lock-timeout=60s
+          {
+            echo "### terraform plan · workspace \`$TARGET_ENV\`"
+            echo '```'
+            terraform show -no-color tfplan | tail -n 80
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ env.TARGET_ENV }}
+          path: infra/terraform/live/tfplan
+          retention-days: 7

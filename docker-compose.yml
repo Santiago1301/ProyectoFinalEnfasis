@@ -4,12 +4,17 @@ services:
   floci:
     image: floci/floci:2.5.0
     container_name: aegisvolt-floci
+    restart: unless-stopped
     ports:
       - "4566:4566"
     environment:
       FLOCI_DEFAULT_REGION: us-east-1
+      # Por defecto Floci guarda todo en memoria: un reinicio de Docker borraría
+      # las tablas y el bucket del tfstate. 'persistent' escribe en /app/data.
+      FLOCI_STORAGE_MODE: persistent
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
     volumes:
-      - floci-data:/var/lib/floci
+      - floci-data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
     # La imagen nativa de Floci no incluye curl/wget; verificar con:
     #   curl localhost:4566/_floci/health

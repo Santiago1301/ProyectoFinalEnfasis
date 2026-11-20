@@ -120,11 +120,59 @@ AWS_ENDPOINT_URL=http://localhost:4566 aws dynamodb update-item --table-name aeg
   --expression-attribute-values '{":f":{"BOOL":false}}'
 ```
 
+## CI/CD y gobernanza de Git
+
+Ramas estáticas `dev`, `test` y `prod`. Promoción estrictamente lineal por PR:
+`feature/* → dev → test → prod`. Sólo se permiten merge commits (squash o rebase reescribirían
+el historial y cada promoción generaría conflictos cruzados).
+
+**CI** ([ci.yml](.github/workflows/ci.yml), en cada PR). Cada job es un check obligatorio:
+
+| Check | Qué valida | Dónde corre |
+|---|---|---|
+| `promotion-guard` | `dev` sólo recibe `feature/*`; `test` sólo desde `dev`; `prod` sólo desde `test` | GitHub |
+| `lint-build` | typecheck, esquema GraphQL + operaciones del frontend, `terraform fmt/validate`, build de las 5 imágenes | GitHub |
+| `unit-tests` | SAGA, compensaciones, idempotencia, tarifas | GitHub |
+| `integration-tests` | repositorios contra DynamoDB real (Floci efímero aprovisionado con el mismo Terraform) + endpoint GraphQL | GitHub |
+| `e2e-tests` | flujos SAGA completos (éxito, fondos insuficientes, fallo de hardware, idempotencia) a través del proxy `/graphql` del frontend | GitHub |
+| `terraform-plan` | `terraform workspace select <rama destino>` + `plan` contra el estado real en S3 | runner self-hosted |
+
+**CD** ([cd.yml](.github/workflows/cd.yml), en push a `dev`/`test`/`prod`, que sólo puede venir de un PR):
+el ambiente se toma de `github.ref_name` → `terraform workspace select <env>` →
+`terraform apply -auto-approve` → imágenes con tag `sha-<commit>` → canary por servicio
+(`scripts/k8s/deploy.sh`) → smoke test que verifica que el ambiente responde con la versión nueva.
+`concurrency` impide dos despliegues simultáneos del mismo ambiente, y el Environment `prod`
+exige aprobación manual.
+
+**Runner self-hosted.** El estado real (Floci) y el clúster (minikube) viven en esta Mac, así que
+`terraform-plan` y `CD` corren en un runner self-hosted con la etiqueta `aegisvolt`
+(GitHub → Settings → Actions → Runners → New self-hosted runner, macOS, añadir la etiqueta).
+Usa un **repositorio privado**: un runner self-hosted en un repo público ejecutaría código ajeno.
+Variables opcionales del repositorio: `NODE_IMAGE` (p. ej. `node:20-slim` si Docker Hub falla),
+`STABLE_REPLICAS`, y `DEPLOY_TARGET=aws` + `AWS_DEPLOY_ROLE_ARN` para AWS real.
+
+**Protección de ramas.** `scripts/github/setup-repo.sh <owner>/<repo>` crea el ruleset
+`ambientes-estaticos` sobre `dev`, `test` y `prod`, sin excepciones ni para administradores:
+bloquea el force push y el borrado, prohíbe el push directo (todo por PR) y exige los 6 checks en
+verde. En repos privados de cuentas personales los rulesets requieren GitHub Pro (incluido en el
+GitHub Student Developer Pack).
+
+```bash
+git push --force origin test   # rechazado: "Cannot force-push to this branch"
+git push origin dev            # rechazado: "Changes must be made through a pull request"
+```
+
+## Arranque tras reiniciar el equipo
+
+```bash
+scripts/local-up.sh   # Floci (persistente) + nodo de minikube + reparación de red del clúster
+```
+
 ## Estado del proyecto
 
 - [x] Microservicios, gateway GraphQL, SAGA con compensaciones e idempotencia, feature flags por ambiente
 - [x] Terraform: bootstrap S3 versionado, workspaces dev/test/prod, VPC/VPCE, DynamoDB, CloudWatch, API Gateway, EKS (AWS real), namespace k8s
 - [x] Dockerfile + manifiestos Kubernetes + canary con análisis y rollback automático
 - [x] Frontend React (tiempo real por WSS, SAGA, flags por ambiente, historial de compensaciones)
-- [ ] GitHub Actions + protección de ramas
+- [x] GitHub Actions (CI con 6 checks, CD con apply dinámico y canary) + script de protección de ramas
 - [ ] Flujos de Prefect
