@@ -57,8 +57,10 @@ locals {
     }
   }
 
-  # Falla en plan si se usa el workspace "default" u otro no permitido.
-  cfg = local.env_config[local.env]
+  # El workspace_guard rechaza en plan cualquier workspace distinto de
+  # dev/test/prod; el fallback a dev sólo permite `terraform validate`
+  # (que siempre evalúa en el workspace "default").
+  cfg = lookup(local.env_config, local.env, local.env_config.dev)
 
   flag_descriptions = {
     ENABLE_DYNAMIC_SURGE_PRICING    = "Tarifas dinámicas (x1.5 en horas pico, x1.2 fuera de pico)"

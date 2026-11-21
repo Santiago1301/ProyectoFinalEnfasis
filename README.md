@@ -146,8 +146,10 @@ exige aprobación manual.
 
 **Runner self-hosted.** El estado real (Floci) y el clúster (minikube) viven en esta Mac, así que
 `terraform-plan` y `CD` corren en un runner self-hosted con la etiqueta `aegisvolt`
-(GitHub → Settings → Actions → Runners → New self-hosted runner, macOS, añadir la etiqueta).
-Usa un **repositorio privado**: un runner self-hosted en un repo público ejecutaría código ajeno.
+(registrado como servicio de macOS en `~/actions-runner-aegisvolt`; `./svc.sh status|stop|start`).
+El repositorio es público, así que el runner está aislado de código ajeno: `terraform-plan` sólo
+corre si el PR viene de una rama del mismo repo (no de un fork), el CD sólo corre tras un merge a
+una rama protegida, y los PRs de forks requieren aprobación manual antes de ejecutar workflows.
 Variables opcionales del repositorio: `NODE_IMAGE` (p. ej. `node:20-slim` si Docker Hub falla),
 `STABLE_REPLICAS`, y `DEPLOY_TARGET=aws` + `AWS_DEPLOY_ROLE_ARN` para AWS real.
 

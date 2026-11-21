@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { FeatureFlagClient } from '@aegisvolt/shared';
 import { cleanupFixtures, createConnector, createWallet, gql } from '../helpers.ts';
 
 /**
@@ -27,9 +28,13 @@ async function balance(fleetId: string) {
   return res.data.wallet.balance as number;
 }
 
+/**
+ * Cambia la flag directamente en la tabla del ambiente, como lo haría un
+ * operador. No usa la mutación setFeatureFlag porque en prod está bloqueada
+ * (ALLOW_FLAG_MUTATIONS=false) y el PR test -> prod corre el E2E con AEGIS_ENV=prod.
+ */
 async function setFlag(name: string, enabled: boolean) {
-  const res = await gql(`mutation($n: String!, $e: Boolean!) { setFeatureFlag(name: $n, enabled: $e) { enabled } }`, { n: name, e: enabled });
-  expect(res.errors).toBeUndefined();
+  await new FeatureFlagClient().set(name, enabled, 'e2e');
   await sleep(FLAG_PROPAGATION_MS); // caché de flags en los servicios
 }
 
