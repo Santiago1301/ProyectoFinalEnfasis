@@ -1,7 +1,7 @@
 # AegisVolt
 
 Plataforma cloud-native de gestión de carga para flotas eléctricas y electrolineras.
-Enunciado completo: [docs/](docs/).
+Proyecto final de Patrones Arquitectónicos Avanzados (el enunciado no se incluye en el repositorio).
 
 ## Arquitectura
 

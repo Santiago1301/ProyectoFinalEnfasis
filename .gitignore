@@ -17,3 +17,6 @@ __pycache__/
 *.pyc
 # OS
 .DS_Store
+
+# Enunciado del curso (no se publica)
+docs/
