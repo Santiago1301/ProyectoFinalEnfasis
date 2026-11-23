@@ -164,6 +164,40 @@ git push --force origin test   # rechazado: "Cannot force-push to this branch"
 git push origin dev            # rechazado: "Changes must be made through a pull request"
 ```
 
+## Observabilidad con Prefect
+
+El flujo `observabilidad-aegisvolt` ([prefect/aegis_flows](prefect/aegis_flows)) corre un subflujo por
+ambiente (`dev`, `test`, `prod`) con estas tareas:
+
+| Tarea | Qué comprueba |
+|---|---|
+| `salud-gateway` | los 4 servicios en `UP`, que el ambiente responda con su identidad y que prod bloquee cambios de flags |
+| `salud-kubernetes` | réplicas listas contra deseadas en cada Deployment |
+| `auditar-sagas` | cruza el log de SAGAs con reservas, cobros, reembolsos, sesiones y conectores en DynamoDB |
+| `errores-cloudwatch` | logs `level=error` de cada servicio en los últimos 15 minutos |
+| `publicar-reporte` | artefactos en el dashboard y resultado en `/aegisvolt/<env>/prefect` con `correlation_id` |
+
+La auditoría detecta SAGAs **huérfanas** (atascadas o recursos activos sin SAGA), lista las
+**compensadas** verificando que el conector quedó libre y el reembolso coincide con el cobro, y marca
+cualquier inconsistencia. Si un ambiente no está `HEALTHY`, la ejecución termina en `Failed`.
+Los flujos no modifican las tablas de los servicios.
+
+```bash
+make prefect-install
+make prefect-server   # dashboard en http://127.0.0.1:4200
+make prefect-run      # una ejecución
+make prefect-serve    # programado cada 5 minutos
+make prefect-test     # pruebas de la auditoría
+```
+
+Rastrear una SAGA en CloudWatch por su `correlation_id`:
+
+```bash
+AWS_ENDPOINT_URL=http://localhost:4566 aws logs filter-log-events \
+  --log-group-name /aegisvolt/dev/graphql-gateway \
+  --filter-pattern '{ $.correlation_id = "<sagaId>" }' --query 'events[].message' --output text
+```
+
 ## Arranque tras reiniciar el equipo
 
 ```bash
@@ -177,4 +211,4 @@ scripts/local-up.sh   # Floci (persistente) + nodo de minikube + reparación de 
 - [x] Dockerfile + manifiestos Kubernetes + canary con análisis y rollback automático
 - [x] Frontend React (tiempo real por WSS, SAGA, flags por ambiente, historial de compensaciones)
 - [x] GitHub Actions (CI con 6 checks, CD con apply dinámico y canary) + script de protección de ramas
-- [ ] Flujos de Prefect
+- [x] Flujos de Prefect (salud de 3 ambientes, auditoría SAGA, métricas en el dashboard)
