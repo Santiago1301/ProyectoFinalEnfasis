@@ -79,6 +79,14 @@ jobs:
         run: npm test
         env:
           NODE_ENV: test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Pruebas de la auditoría SAGA (Prefect)
+        working-directory: prefect
+        run: |
+          pip install -q 'pytest>=8,<10'
+          python -m pytest -q tests
 
   integration-tests:
     name: integration-tests
