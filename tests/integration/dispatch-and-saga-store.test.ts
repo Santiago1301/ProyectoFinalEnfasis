@@ -9,7 +9,7 @@ describe('energy-dispatch-service ↔ DynamoDB', () => {
     const repo = new DispatchRepository();
     const now = new Date().toISOString();
     const session = {
-      sagaId: uid('saga'), stationId: 's', connectorId: 'c1', status: 'ACTIVE' as const,
+      sagaId: uid('saga'), stationId: 'it-s', connectorId: 'c1', status: 'ACTIVE' as const,
       powerKw: 50, energyKwhTarget: 10, deliveredKwh: 0, startedAt: now, updatedAt: now,
     };
     expect((await repo.createSession(session)).created).toBe(true);
@@ -23,8 +23,8 @@ describe('log de SAGAs ↔ DynamoDB', () => {
     const store = new DynamoSagaStore();
     const now = new Date().toISOString();
     const saga: SagaRecord = {
-      sagaId: uid('saga'), correlationId: 'x', status: 'STARTED', environment: 'test', fleetId: 'f',
-      stationId: 's', connectorId: 'c1', energyKwh: 1, fastChargeBoost: false, attemptedSteps: [], steps: [],
+      sagaId: uid('saga'), correlationId: 'x', status: 'STARTED', environment: 'test', fleetId: 'it-f',
+      stationId: 'it-s', connectorId: 'c1', energyKwh: 1, fastChargeBoost: false, attemptedSteps: [], steps: [],
       createdAt: now, updatedAt: now, version: 0,
     };
     expect(await store.create(saga)).toBe(true);
